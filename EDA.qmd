@@ -1,0 +1,86 @@
+---
+title: "EDA"
+format: html
+editor: visual
+---
+# Data Wrangling
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyverse)
+
+{customers <- read.csv("MavenMarket_Customers.csv")
+# metadata <- read.xls("MavenMarket_Metadata.xls")
+products <- read.csv("MavenMarket_Products.csv")
+regions <- read.csv("MavenMarket_Regions.csv")
+returns <- read.csv("MavenMarket_Returns_1997-1998.csv")
+stores <- read.csv("MavenMarket_Stores.csv")
+transactions97 <- read.csv("MavenMarket_Transactions_1997.csv")
+transactions98 <- read.csv("MavenMarket_Transactions_1998.csv")
+}
+
+```
+
+# Data Cleaning
+```{r}
+library(lubridate)
+# Customers
+str(customers)
+
+
+customers_clean <- customers %>% 
+  mutate(birthdate = mdy(birthdate), # Date
+         customer_country = as.factor(customer_country), #Factor
+         marital_status = as.factor(marital_status), # Factor
+         yearly_income = as.factor(yearly_income), # Factor b/c range
+         gender = as.factor(gender), # factor
+         education = as.factor(education), # factor
+         acct_open_date = mdy(acct_open_date), # Date
+         member_card = as.factor(member_card), # Factor
+         occupation = as.factor(occupation),# factor
+         homeowner = as.factor(homeowner)) # factor
+
+summary(customers_clean)
+
+
+# Products
+str(products)
+
+products_clean <- products %>% 
+  mutate(recyclable = if_else(is.na(recyclable), 0, 1),
+         low_fat = if_else(is.na(low_fat), 0, 1))
+
+# Regions is already clean
+
+regions_clean <- regions
+
+# Returns
+
+returns_clean <- returns %>% 
+  mutate(return_date = mdy(return_date),
+         store_id = as.factor(store_id))
+  
+# Stores
+
+str(stores)
+
+stores_clean <- stores %>% 
+  mutate(store_type = as.factor(store_type),
+         store_name = as.factor(store_name),
+         store_state = as.factor(store_state),
+         store_country = as.factor(store_country),
+         first_opened_date = mdy(first_opened_date),
+         last_remodel_date = mdy(last_remodel_date)
+         )
+
+```
+
+# EDA
+```{r}
+# boxplots
+library(ggplot2)
+
+products %>% ggplot(aes(y = product_weight)) +
+  geom_boxplot()
+```
+
