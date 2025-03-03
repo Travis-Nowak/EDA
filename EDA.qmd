@@ -3,7 +3,9 @@ title: "EDA"
 format: html
 editor: visual
 ---
+
 # Data Wrangling
+
 ```{r}
 library(readxl)
 library(dplyr)
@@ -22,6 +24,7 @@ transactions98 <- read.csv("MavenMarket_Transactions_1998.csv")
 ```
 
 # Data Cleaning
+
 ```{r}
 library(lubridate)
 # Customers
@@ -65,7 +68,8 @@ returns_clean <- returns %>%
 str(stores)
 
 stores_clean <- stores %>% 
-  mutate(store_type = as.factor(store_type),
+  mutate(store_id = as.factor(store_id),
+         store_type = as.factor(store_type),
          store_name = as.factor(store_name),
          store_state = as.factor(store_state),
          store_country = as.factor(store_country),
@@ -73,14 +77,85 @@ stores_clean <- stores %>%
          last_remodel_date = mdy(last_remodel_date)
          )
 
+# Transactions97
+str(transactions97)
+
+transactions97_clean <- transactions97 %>% 
+  mutate(transaction_date = mdy(transaction_date),
+         store_id = as.factor(store_id),
+         stock_date = mdy(stock_date)
+  )
+
+
+
+# Transactions98
+str(transactions98)
+
+transactions98_clean <- transactions98 %>% 
+  mutate(transaction_date = mdy(transaction_date),
+         store_id = as.factor(store_id),
+         stock_date = mdy(stock_date)
+  )
+
+transactions_clean <- bind_rows(transactions97_clean, transactions98_clean)
+
+rm("customers", "returns","stores", "products", "regions", "transactions97", "transactions98")
+
 ```
 
-# EDA
+# Data Transformation & EDA
+
 ```{r}
-# boxplots
 library(ggplot2)
+ggplot(returns_clean, aes(x = product_id)) +
+  geom_bar() +
+  labs(title = "Product Returns by Product Type", x = "Product ID", y = "Count of Returns") +
+  theme_minimal()
 
-products %>% ggplot(aes(y = product_weight)) +
-  geom_boxplot()
 ```
+
+```{r}
+
+products_returns <- left_join(products_clean, returns_clean, by = "product_id") %>% 
+  mutate(quantity = as.factor(if_else(is.na((quantity)), 0, quantity))) %>% 
+  rename(`quantity_returned` = "quantity")
+
+products_returns
+
+ggplot(products_returns, aes(x = product_retail_price, fill = quantity_returned)) +
+  geom_histogram(binwidth = 0.1, position = "dodge") +
+  labs(title = "Price Distribution for Returned vs. Non-Returned Products", x = "Retail Price", y = "Count") +
+  theme_minimal()
+
+```
+
+```{r}
+library(lubridate)
+
+returns_clean$month <- floor_date(returns_clean$return_date, "month")
+
+ggplot(returns_clean, aes(x = month)) +
+  geom_line(stat = "count", color = "blue") +
+  labs(title = "Monthly Trend of Product Returns", x = "Month", y = "Return Count") +
+  theme_minimal()
+
+
+```
+
+```{r}
+library(reshape2)
+library(dplyr)
+
+returns_summary <- returns_clean %>%
+  mutate(month = month(return_date, label = TRUE)) %>%
+  group_by(product_id, month) %>%
+  summarise(total_returns = sum(quantity))
+
+ggplot(returns_summary, aes(x = month, y = product_id, fill = total_returns)) +
+  geom_tile() +
+  labs(title = "Heatmap of Returns by Month and Product Type", x = "Month", y = "Product ID") +
+  theme_minimal()
+
+```
+
 
