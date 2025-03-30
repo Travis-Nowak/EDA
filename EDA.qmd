@@ -159,3 +159,156 @@ ggplot(returns_summary, aes(x = month, y = product_id, fill = total_returns)) +
 ```
 
 
+
+# Bagging
+
+```{r}
+library(dplyr)
+library(lubridate)
+# Load
+tx_97 <- read.csv("MavenMarket_Transactions_1997.csv")
+tx_98 <- read.csv("MavenMarket_Transactions_1998.csv")
+returns <- read.csv("MavenMarket_Returns_1997-1998.csv")
+products <- read.csv("MavenMarket_Products.csv")
+stores <- read.csv("MavenMarket_Stores.csv")
+regions <- read.csv("MavenMarket_Regions.csv")
+customers <- read.csv("MavenMarket_Customers.csv")
+
+# Combine tx
+transactions <- bind_rows(tx_97, tx_98) %>%
+  mutate(transaction_date = mdy(transaction_date),
+         key = paste(product_id, store_id))
+
+# returns key
+returns <- returns %>%
+  mutate(return_date = mdy(return_date),
+         key = paste(product_id, store_id))
+
+# left join key
+returns_short <- returns %>% select(key, return_date)
+transactions <- left_join(transactions, returns_short, by = "key")
+
+# label returns
+transactions <- transactions %>%
+  mutate(
+    Returned = ifelse(!is.na(return_date), 1, 0)
+  ) %>%
+  select(-return_date, -key)
+
+# Make final dataset
+transactions <- transactions %>%
+  left_join(products, by = "product_id") %>%
+  left_join(stores, by = "store_id") %>%
+  left_join(regions, by = "region_id") %>%
+  left_join(customers, by = "customer_id")
+
+# Feature engineering. We want to create a variable for season, profit margin, and store age.
+transactions <- transactions %>%
+  mutate(
+    season = quarter(transaction_date),
+    profit_margin = product_retail_price - product_cost,
+    store_age = as.numeric(difftime(transaction_date, mdy(first_opened_date), units = "days"))
+  )
+
+# Final model dataset
+model_data <- transactions %>%
+  select(
+    Returned, quantity, season, product_brand, product_retail_price, product_cost, profit_margin, product_weight, store_type, total_sqft, grocery_sqft, sales_district, sales_region, store_age, gender, marital_status, yearly_income, total_children, num_children_at_home, education, homeowner
+  ) %>%
+  na.omit()
+
+
+```
+
+```{r}
+library(randomForest)
+
+# Convert character columns to factors
+model_data <- mutate_if(model_data, is.character, as.factor)
+model_data <- model_data %>% 
+  mutate(
+    Returned = as.factor(Returned),
+    season = as.factor(season),
+    total_children = as.factor(total_children),
+    num_children_at_home = as.factor(num_children_at_home)
+  )
+
+# frequency of each brand
+brand_counts <- table(model_data$product_brand)
+# RF only handles up to 50 categories, let's select top 50
+top_brands <- names(sort(brand_counts, decreasing = TRUE))[1:50]
+
+# keep top brands, label the rest as "Other"
+model_data <- model_data %>%
+  mutate(product_brand = ifelse(product_brand %in% top_brands, as.character(product_brand), "Other")) %>%
+  mutate(product_brand = as.factor(product_brand))
+
+# First split: 70% training, 30% remaining
+set.seed(123)
+sample_index <- sample(1:nrow(model_data), size = 0.7 * nrow(model_data))
+train_data <- model_data[sample_index, ]
+remaining_data <- model_data[-sample_index, ]
+
+# Second split: Divide the remaining 30% equally into validation and test sets (15% each)
+set.seed(123)
+val_index <- sample(1:nrow(remaining_data), size = 0.5 * nrow(remaining_data))
+validation_data <- remaining_data[val_index, ]
+test_data <- remaining_data[-val_index, ]
+
+# BAGGING MODEL
+bag_model <- randomForest(Returned ~ ., data=train_data, mtry = ncol(train_data) - 1, importance=T, na.action=na.omit)
+
+
+# Evaluate on the validation set
+bag_val_preds <- predict(bag_model, validation_data)
+bag_val_conf <- table(validation_data$Returned, bag_val_preds)
+bag_val_error <- 1 - sum(diag(bag_val_conf)) / sum(bag_val_conf)
+
+print("Bagging Validation Confusion Matrix:")
+print(bag_val_conf)
+print(paste("Bagging Validation Error Rate:", round(bag_val_error, 4)))
+
+
+# RANDOM FOREST MODEL
+rf_model <- randomForest(Returned ~ ., data=train_data, importance=T, na.action=na.omit)
+
+# Evaluate on the validation set
+rf_val_preds <- predict(rf_model, validation_data)
+rf_val_conf <- table(validation_data$Returned, rf_val_preds)
+rf_val_error <- 1 - sum(diag(rf_val_conf)) / sum(rf_val_conf)
+
+print("Random Forest Validation Confusion Matrix:")
+print(rf_val_conf)
+print(paste("Random Forest Validation Error Rate:", round(rf_val_error, 4)))
+
+# FINAL EVALUATION on Test Set
+## Evaluate Bagging on the test set
+bag_test_preds <- predict(bag_model, test_data)
+bag_test_conf <- table(test_data$Returned, bag_test_preds)
+bag_test_error <- 1 - sum(diag(bag_test_conf)) / sum(bag_test_conf)
+print("Bagging Test Confusion Matrix:")
+print(bag_test_conf)
+print(paste("Bagging Test Error Rate:", round(bag_test_error, 4)))
+
+## Evaluate Random Forest on the test set
+rf_test_preds <- predict(rf_model, test_data)
+rf_test_conf <- table(test_data$Returned, rf_test_preds)
+rf_test_error <- 1 - sum(diag(rf_test_conf)) / sum(rf_test_conf)
+print("Random Forest Test Confusion Matrix:")
+print(rf_test_conf)
+print(paste("Random Forest Test Error Rate:", round(rf_test_error, 4)))
+
+
+```
+
+
+
+```{r}
+# Variable Importance
+importance(rf_model)
+varImpPlot(rf_model, main = "Variable Importance - Random Forest")
+
+importance(bag_model)
+varImpPlot(bag_model, main = "Variable Importance - Bagging")
+
+```
