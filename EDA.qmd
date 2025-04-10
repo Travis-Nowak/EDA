@@ -4,165 +4,10 @@ format: html
 editor: visual
 ---
 
-# Data Wrangling
-
+# Modeling
+## Data Cleanup
 ```{r}
-library(readxl)
-library(dplyr)
-library(tidyverse)
-
-{customers <- read.csv("MavenMarket_Customers.csv")
-# metadata <- read.xls("MavenMarket_Metadata.xls")
-products <- read.csv("MavenMarket_Products.csv")
-regions <- read.csv("MavenMarket_Regions.csv")
-returns <- read.csv("MavenMarket_Returns_1997-1998.csv")
-stores <- read.csv("MavenMarket_Stores.csv")
-transactions97 <- read.csv("MavenMarket_Transactions_1997.csv")
-transactions98 <- read.csv("MavenMarket_Transactions_1998.csv")
-}
-
-```
-
-# Data Cleaning
-
-```{r}
-library(lubridate)
-# Customers
-str(customers)
-
-
-customers_clean <- customers %>% 
-  mutate(birthdate = mdy(birthdate), # Date
-         customer_country = as.factor(customer_country), #Factor
-         marital_status = as.factor(marital_status), # Factor
-         yearly_income = as.factor(yearly_income), # Factor b/c range
-         gender = as.factor(gender), # factor
-         education = as.factor(education), # factor
-         acct_open_date = mdy(acct_open_date), # Date
-         member_card = as.factor(member_card), # Factor
-         occupation = as.factor(occupation),# factor
-         homeowner = as.factor(homeowner)) # factor
-
-summary(customers_clean)
-
-
-# Products
-str(products)
-
-products_clean <- products %>% 
-  mutate(recyclable = if_else(is.na(recyclable), 0, 1),
-         low_fat = if_else(is.na(low_fat), 0, 1))
-
-# Regions is already clean
-
-regions_clean <- regions
-
-# Returns
-
-returns_clean <- returns %>% 
-  mutate(return_date = mdy(return_date),
-         store_id = as.factor(store_id))
-  
-# Stores
-
-str(stores)
-
-stores_clean <- stores %>% 
-  mutate(store_id = as.factor(store_id),
-         store_type = as.factor(store_type),
-         store_name = as.factor(store_name),
-         store_state = as.factor(store_state),
-         store_country = as.factor(store_country),
-         first_opened_date = mdy(first_opened_date),
-         last_remodel_date = mdy(last_remodel_date)
-         )
-
-# Transactions97
-str(transactions97)
-
-transactions97_clean <- transactions97 %>% 
-  mutate(transaction_date = mdy(transaction_date),
-         store_id = as.factor(store_id),
-         stock_date = mdy(stock_date)
-  )
-
-
-
-# Transactions98
-str(transactions98)
-
-transactions98_clean <- transactions98 %>% 
-  mutate(transaction_date = mdy(transaction_date),
-         store_id = as.factor(store_id),
-         stock_date = mdy(stock_date)
-  )
-
-transactions_clean <- bind_rows(transactions97_clean, transactions98_clean)
-
-rm("customers", "returns","stores", "products", "regions", "transactions97", "transactions98")
-
-```
-
-# Data Transformation & EDA
-
-```{r}
-library(ggplot2)
-ggplot(returns_clean, aes(x = product_id)) +
-  geom_bar() +
-  labs(title = "Product Returns by Product Type", x = "Product ID", y = "Count of Returns") +
-  theme_minimal()
-
-```
-
-```{r}
-
-products_returns <- left_join(products_clean, returns_clean, by = "product_id") %>% 
-  mutate(quantity = as.factor(if_else(is.na((quantity)), 0, quantity))) %>% 
-  rename(`quantity_returned` = "quantity")
-
-products_returns
-
-ggplot(products_returns, aes(x = product_retail_price, fill = quantity_returned)) +
-  geom_histogram(binwidth = 0.1, position = "dodge") +
-  labs(title = "Price Distribution for Returned vs. Non-Returned Products", x = "Retail Price", y = "Count") +
-  theme_minimal()
-
-```
-
-```{r}
-library(lubridate)
-
-returns_clean$month <- floor_date(returns_clean$return_date, "month")
-
-ggplot(returns_clean, aes(x = month)) +
-  geom_line(stat = "count", color = "blue") +
-  labs(title = "Monthly Trend of Product Returns", x = "Month", y = "Return Count") +
-  theme_minimal()
-
-
-```
-
-```{r}
-library(reshape2)
-library(dplyr)
-
-returns_summary <- returns_clean %>%
-  mutate(month = month(return_date, label = TRUE)) %>%
-  group_by(product_id, month) %>%
-  summarise(total_returns = sum(quantity))
-
-ggplot(returns_summary, aes(x = month, y = product_id, fill = total_returns)) +
-  geom_tile() +
-  labs(title = "Heatmap of Returns by Month and Product Type", x = "Month", y = "Product ID") +
-  theme_minimal()
-
-```
-
-
-
-# Bagging
-
-```{r}
+library(randomForest)
 library(dplyr)
 library(lubridate)
 # Load
@@ -220,8 +65,8 @@ model_data <- transactions %>%
 
 ```
 
+## Training Validation Test sets
 ```{r}
-library(randomForest)
 
 # Convert character columns to factors
 model_data <- mutate_if(model_data, is.character, as.factor)
@@ -254,11 +99,18 @@ set.seed(123)
 val_index <- sample(1:nrow(remaining_data), size = 0.5 * nrow(remaining_data))
 validation_data <- remaining_data[val_index, ]
 test_data <- remaining_data[-val_index, ]
+```
 
+## models
+### Bagging Model
+```{r}
+library(randomForest)
 # BAGGING MODEL
 bag_model <- randomForest(Returned ~ ., data=train_data, mtry = ncol(train_data) - 1, importance=T, na.action=na.omit)
 
-
+```
+#### Validation set
+```{r}
 # Evaluate on the validation set
 bag_val_preds <- predict(bag_model, validation_data)
 bag_val_conf <- table(validation_data$Returned, bag_val_preds)
@@ -267,11 +119,154 @@ bag_val_error <- 1 - sum(diag(bag_val_conf)) / sum(bag_val_conf)
 print("Bagging Validation Confusion Matrix:")
 print(bag_val_conf)
 print(paste("Bagging Validation Error Rate:", round(bag_val_error, 4)))
+```
+
+##### Confusion Matrix (Validation)
+```{r}
+library(ggplot2)
+library(reshape2)
+
+# Convert confusion matrix to dataframe
+conf_df <- as.data.frame(bag_val_conf)
+colnames(conf_df) <- c("Actual", "Predicted", "Freq")
+
+# Replace factor levels
+conf_df$Actual <- factor(conf_df$Actual, levels = c("0", "1"), labels = c("No Return", "Return"))
+conf_df$Predicted <- factor(conf_df$Predicted, levels = c("0", "1"), labels = c("No Return", "Return"))
+
+# Add percentage column
+conf_df$Percent <- round(conf_df$Freq / sum(conf_df$Freq) * 100, 1)
+
+# Compute precision
+tp <- bag_val_conf["1", "1"]  # True Positives
+fp <- bag_val_conf["0", "1"]  # False Positives
+precision <- tp / (tp + fp)
+
+# New title
+plot_title <- paste0(
+  "Bagging Model — Validation Set\n",
+  "Confusion Matrix | Precision: ", round(precision * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+##################################################
+# Compute sensitivity
+tp <- bag_val_conf["1", "1"]
+fn <- bag_val_conf["1", "0"]
+sensitivity <- tp / (tp + fn)
+
+# Updated title
+plot_title <- paste0(
+  "Bagging Model — Validation Set\n",
+  "Confusion Matrix | Sensitivity: ", round(sensitivity * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+#### Test Set
+```{r}
+bag_test_preds <- predict(bag_model, test_data)
+bag_test_conf <- table(test_data$Returned, bag_test_preds)
+bag_test_error <- 1 - sum(diag(bag_test_conf)) / sum(bag_test_conf)
+
+print("Bagging Test Confusion Matrix:")
+print(bag_test_conf)
+print(paste("Bagging Test Error Rate:", round(bag_test_error, 4)))
+```
+
+##### Confusion Matrix (Test)
+```{r}
+library(ggplot2)
+library(reshape2)
+
+# Convert confusion matrix to dataframe
+conf_df <- as.data.frame(bag_test_conf)
+colnames(conf_df) <- c("Actual", "Predicted", "Freq")
+
+# Replace factor levels
+conf_df$Actual <- factor(conf_df$Actual, levels = c("0", "1"), labels = c("No Return", "Return"))
+conf_df$Predicted <- factor(conf_df$Predicted, levels = c("0", "1"), labels = c("No Return", "Return"))
+
+# Add percentage column
+conf_df$Percent <- round(conf_df$Freq / sum(conf_df$Freq) * 100, 1)
+
+# Compute precision
+tp <- bag_test_conf["1", "1"]  # True Positives
+fp <- bag_test_conf["0", "1"]  # False Positives
+precision <- tp / (tp + fp)
+
+# New title
+plot_title <- paste0(
+  "Bagging Model — Tesst Set\n",
+  "Confusion Matrix | Precision: ", round(precision * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+##################################################
+# Compute sensitivity
+tp <- bag_test_conf["1", "1"]
+fn <- bag_test_conf["1", "0"]
+sensitivity <- tp / (tp + fn)
+
+# Updated title
+plot_title <- paste0(
+  "Bagging Model — Test Set\n",
+  "Confusion Matrix | Sensitivity: ", round(sensitivity * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+```
 
 
+### Random Forest Model
+```{r}
 # RANDOM FOREST MODEL
 rf_model <- randomForest(Returned ~ ., data=train_data, importance=T, na.action=na.omit)
+```
 
+#### Validation Set
+```{r}
 # Evaluate on the validation set
 rf_val_preds <- predict(rf_model, validation_data)
 rf_val_conf <- table(validation_data$Returned, rf_val_preds)
@@ -280,15 +275,80 @@ rf_val_error <- 1 - sum(diag(rf_val_conf)) / sum(rf_val_conf)
 print("Random Forest Validation Confusion Matrix:")
 print(rf_val_conf)
 print(paste("Random Forest Validation Error Rate:", round(rf_val_error, 4)))
+```
+##### Confusion Matrix (Validation)
+```{r}
+library(ggplot2)
+library(reshape2)
 
+# Convert confusion matrix to dataframe
+conf_df <- as.data.frame(rf_val_conf)
+colnames(conf_df) <- c("Actual", "Predicted", "Freq")
+
+# Replace factor levels
+conf_df$Actual <- factor(conf_df$Actual, levels = c("0", "1"), labels = c("No Return", "Return"))
+conf_df$Predicted <- factor(conf_df$Predicted, levels = c("0", "1"), labels = c("No Return", "Return"))
+
+# Add percentage column
+conf_df$Percent <- round(conf_df$Freq / sum(conf_df$Freq) * 100, 1)
+
+# Compute precision
+tp <- rf_val_conf["1", "1"]  # True Positives
+fp <- rf_val_conf["0", "1"]  # False Positives
+precision <- tp / (tp + fp)
+
+# New title
+plot_title <- paste0(
+  "RF Model — Validation Set\n",
+  "Confusion Matrix | Precision: ", round(precision * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+##################################################
+# Compute sensitivity
+tp <- rf_val_conf["1", "1"]
+fn <- rf_val_conf["1", "0"]
+sensitivity <- tp / (tp + fn)
+
+# Updated title
+plot_title <- paste0(
+  "RF Model — Validation Set\n",
+  "Confusion Matrix | Sensitivity: ", round(sensitivity * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+#### Test Set
+```{r}
 # FINAL EVALUATION on Test Set
-## Evaluate Bagging on the test set
-bag_test_preds <- predict(bag_model, test_data)
-bag_test_conf <- table(test_data$Returned, bag_test_preds)
-bag_test_error <- 1 - sum(diag(bag_test_conf)) / sum(bag_test_conf)
-print("Bagging Test Confusion Matrix:")
-print(bag_test_conf)
-print(paste("Bagging Test Error Rate:", round(bag_test_error, 4)))
+## Evaluate RF on the test set
+rf_test_preds <- predict(rf_model, test_data)
+rf_test_conf <- table(test_data$Returned, rf_test_preds)
+rf_test_error <- 1 - sum(diag(rf_test_conf)) / sum(rf_test_conf)
+print("Random Forest Test Confusion Matrix:")
+print(rf_test_conf)
+print(paste("RF Test Error Rate:", round(rf_test_error, 4)))
 
 ## Evaluate Random Forest on the test set
 rf_test_preds <- predict(rf_model, test_data)
@@ -297,18 +357,420 @@ rf_test_error <- 1 - sum(diag(rf_test_conf)) / sum(rf_test_conf)
 print("Random Forest Test Confusion Matrix:")
 print(rf_test_conf)
 print(paste("Random Forest Test Error Rate:", round(rf_test_error, 4)))
+```
 
+##### Confusion Matrix (Test)
+```{r}
+library(ggplot2)
+library(reshape2)
 
+# Convert confusion matrix to dataframe
+conf_df <- as.data.frame(rf_test_conf)
+colnames(conf_df) <- c("Actual", "Predicted", "Freq")
+
+# Replace factor levels
+conf_df$Actual <- factor(conf_df$Actual, levels = c("0", "1"), labels = c("No Return", "Return"))
+conf_df$Predicted <- factor(conf_df$Predicted, levels = c("0", "1"), labels = c("No Return", "Return"))
+
+# Add percentage column
+conf_df$Percent <- round(conf_df$Freq / sum(conf_df$Freq) * 100, 1)
+
+# Compute precision
+tp <- rf_test_conf["1", "1"]  # True Positives
+fp <- rf_test_conf["0", "1"]  # False Positives
+precision <- tp / (tp + fp)
+
+# New title
+plot_title <- paste0(
+  "RF Model — Test Set\n",
+  "Confusion Matrix | Precision: ", round(precision * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+##################################################
+# Compute sensitivity
+tp <- rf_test_conf["1", "1"]
+fn <- rf_test_conf["1", "0"]
+sensitivity <- tp / (tp + fn)
+
+# Updated title
+plot_title <- paste0(
+  "RF Model — Test Set\n",
+  "Confusion Matrix | Sensitivity: ", round(sensitivity * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+## Variable Importance Charts
+```{r}
+# Plot with adjusted margin and fewer variables
+par(mar = c(5, 10, 4, 2))  # Bottom, Left, Top, Right margins
+
+# Show top 15 most important variables only
+varImpPlot(bag_model, n.var = 15, main = "Variable Importance (Bagging Model)")
+
+# Show top 15 most important variables only
+varImpPlot(rf_model, n.var = 15, main = "Variable Importance (RF Model)")
 ```
 
 
+# Clean up data after Var Imp Chart
+```{r}
+
+# keep top brands, label the rest as "Other"
+
+model_data_revised <- model_data %>%
+  select(Returned, product_brand, sales_district, profit_margin, product_weight, product_cost, store_age, product_retail_price, product_weight, yearly_income)
+
+
+# First split: 70% training, 30% remaining
+set.seed(123)
+sample_index <- sample(1:nrow(model_data_revised), size = 0.7 * nrow(model_data_revised))
+train_data <- model_data_revised[sample_index, ]
+remaining_data <- model_data_revised[-sample_index, ]
+
+# Second split: Divide the remaining 30% equally into validation and test sets (15% each)
+set.seed(123)
+val_index <- sample(1:nrow(remaining_data), size = 0.5 * nrow(remaining_data))
+validation_data <- remaining_data[val_index, ]
+test_data <- remaining_data[-val_index, ]
+```
 
 ```{r}
-# Variable Importance
-importance(rf_model)
-varImpPlot(rf_model, main = "Variable Importance - Random Forest")
-
-importance(bag_model)
-varImpPlot(bag_model, main = "Variable Importance - Bagging")
-
+# BAGGING MODEL
+bag_model <- randomForest(Returned ~ ., data=train_data, mtry = ncol(train_data) - 1, importance=T, na.action=na.omit)
 ```
+
+#### Validation set
+```{r}
+# Evaluate on the validation set
+bag_val_preds <- predict(bag_model, validation_data)
+bag_val_conf <- table(validation_data$Returned, bag_val_preds)
+bag_val_error <- 1 - sum(diag(bag_val_conf)) / sum(bag_val_conf)
+
+print("Bagging Validation Confusion Matrix:")
+print(bag_val_conf)
+print(paste("Bagging Validation Error Rate:", round(bag_val_error, 4)))
+```
+
+##### Confusion Matrix (Validation)
+```{r}
+library(ggplot2)
+library(reshape2)
+
+# Convert confusion matrix to dataframe
+conf_df <- as.data.frame(bag_val_conf)
+colnames(conf_df) <- c("Actual", "Predicted", "Freq")
+
+# Replace factor levels
+conf_df$Actual <- factor(conf_df$Actual, levels = c("0", "1"), labels = c("No Return", "Return"))
+conf_df$Predicted <- factor(conf_df$Predicted, levels = c("0", "1"), labels = c("No Return", "Return"))
+
+# Add percentage column
+conf_df$Percent <- round(conf_df$Freq / sum(conf_df$Freq) * 100, 1)
+
+# Compute precision
+tp <- bag_val_conf["1", "1"]  # True Positives
+fp <- bag_val_conf["0", "1"]  # False Positives
+precision <- tp / (tp + fp)
+
+# New title
+plot_title <- paste0(
+  "Bagging Model — Validation Set\n",
+  "Confusion Matrix | Precision: ", round(precision * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+##################################################
+# Compute sensitivity
+tp <- bag_val_conf["1", "1"]
+fn <- bag_val_conf["1", "0"]
+sensitivity <- tp / (tp + fn)
+
+# Updated title
+plot_title <- paste0(
+  "Bagging Model — Validation Set\n",
+  "Confusion Matrix | Sensitivity: ", round(sensitivity * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+#### Test Set
+```{r}
+bag_test_preds <- predict(bag_model, test_data)
+bag_test_conf <- table(test_data$Returned, bag_test_preds)
+bag_test_error <- 1 - sum(diag(bag_test_conf)) / sum(bag_test_conf)
+
+print("Bagging Test Confusion Matrix:")
+print(bag_test_conf)
+print(paste("Bagging Test Error Rate:", round(bag_test_error, 4)))
+```
+
+##### Confusion Matrix (Test)
+```{r}
+library(ggplot2)
+library(reshape2)
+
+# Convert confusion matrix to dataframe
+conf_df <- as.data.frame(bag_test_conf)
+colnames(conf_df) <- c("Actual", "Predicted", "Freq")
+
+# Replace factor levels
+conf_df$Actual <- factor(conf_df$Actual, levels = c("0", "1"), labels = c("No Return", "Return"))
+conf_df$Predicted <- factor(conf_df$Predicted, levels = c("0", "1"), labels = c("No Return", "Return"))
+
+# Add percentage column
+conf_df$Percent <- round(conf_df$Freq / sum(conf_df$Freq) * 100, 1)
+
+# Compute precision
+tp <- bag_test_conf["1", "1"]  # True Positives
+fp <- bag_test_conf["0", "1"]  # False Positives
+precision <- tp / (tp + fp)
+
+# New title
+plot_title <- paste0(
+  "Bagging Model — Test Set\n",
+  "Confusion Matrix | Precision: ", round(precision * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+##################################################
+# Compute sensitivity
+tp <- bag_test_conf["1", "1"]
+fn <- bag_test_conf["1", "0"]
+sensitivity <- tp / (tp + fn)
+
+# Updated title
+plot_title <- paste0(
+  "Bagging Model — Test Set\n",
+  "Confusion Matrix | Sensitivity: ", round(sensitivity * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+### Random Forest Model
+```{r}
+# RANDOM FOREST MODEL
+rf_model <- randomForest(Returned ~ ., data=train_data, importance=T, na.action=na.omit)
+```
+
+#### Validation Set
+```{r}
+# Evaluate on the validation set
+rf_val_preds <- predict(rf_model, validation_data)
+rf_val_conf <- table(validation_data$Returned, rf_val_preds)
+rf_val_error <- 1 - sum(diag(rf_val_conf)) / sum(rf_val_conf)
+
+print("Random Forest Validation Confusion Matrix:")
+print(rf_val_conf)
+print(paste("Random Forest Validation Error Rate:", round(rf_val_error, 4)))
+```
+##### Confusion Matrix (Validation)
+```{r}
+library(ggplot2)
+library(reshape2)
+
+# Convert confusion matrix to dataframe
+conf_df <- as.data.frame(rf_val_conf)
+colnames(conf_df) <- c("Actual", "Predicted", "Freq")
+
+# Replace factor levels
+conf_df$Actual <- factor(conf_df$Actual, levels = c("0", "1"), labels = c("No Return", "Return"))
+conf_df$Predicted <- factor(conf_df$Predicted, levels = c("0", "1"), labels = c("No Return", "Return"))
+
+# Add percentage column
+conf_df$Percent <- round(conf_df$Freq / sum(conf_df$Freq) * 100, 1)
+
+# Compute precision
+tp <- rf_val_conf["1", "1"]  # True Positives
+fp <- rf_val_conf["0", "1"]  # False Positives
+precision <- tp / (tp + fp)
+
+# New title
+plot_title <- paste0(
+  "RF Model — Validation Set\n",
+  "Confusion Matrix | Precision: ", round(precision * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+##################################################
+# Compute sensitivity
+tp <- rf_val_conf["1", "1"]
+fn <- rf_val_conf["1", "0"]
+sensitivity <- tp / (tp + fn)
+
+# Updated title
+plot_title <- paste0(
+  "RF Model — Validation Set\n",
+  "Confusion Matrix | Sensitivity: ", round(sensitivity * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
+#### Test Set
+```{r}
+# FINAL EVALUATION on Test Set
+## Evaluate RF on the test set
+rf_test_preds <- predict(rf_model, test_data)
+rf_test_conf <- table(test_data$Returned, rf_test_preds)
+rf_test_error <- 1 - sum(diag(rf_test_conf)) / sum(rf_test_conf)
+print("Random Forest Test Confusion Matrix:")
+print(rf_test_conf)
+print(paste("RF Test Error Rate:", round(rf_test_error, 4)))
+
+## Evaluate Random Forest on the test set
+rf_test_preds <- predict(rf_model, test_data)
+rf_test_conf <- table(test_data$Returned, rf_test_preds)
+rf_test_error <- 1 - sum(diag(rf_test_conf)) / sum(rf_test_conf)
+print("Random Forest Test Confusion Matrix:")
+print(rf_test_conf)
+print(paste("Random Forest Test Error Rate:", round(rf_test_error, 4)))
+```
+
+##### Confusion Matrix (Test)
+```{r}
+library(ggplot2)
+library(reshape2)
+
+# Convert confusion matrix to dataframe
+conf_df <- as.data.frame(rf_test_conf)
+colnames(conf_df) <- c("Actual", "Predicted", "Freq")
+
+# Replace factor levels
+conf_df$Actual <- factor(conf_df$Actual, levels = c("0", "1"), labels = c("No Return", "Return"))
+conf_df$Predicted <- factor(conf_df$Predicted, levels = c("0", "1"), labels = c("No Return", "Return"))
+
+# Add percentage column
+conf_df$Percent <- round(conf_df$Freq / sum(conf_df$Freq) * 100, 1)
+
+# Compute precision
+tp <- rf_test_conf["1", "1"]  # True Positives
+fp <- rf_test_conf["0", "1"]  # False Positives
+precision <- tp / (tp + fp)
+
+# New title
+plot_title <- paste0(
+  "RF Model — Test Set\n",
+  "Confusion Matrix | Precision: ", round(precision * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+##################################################
+# Compute sensitivity
+tp <- rf_test_conf["1", "1"]
+fn <- rf_test_conf["1", "0"]
+sensitivity <- tp / (tp + fn)
+
+# Updated title
+plot_title <- paste0(
+  "RF Model — Test Set\n",
+  "Confusion Matrix | Sensitivity: ", round(sensitivity * 100, 2), "%"
+)
+
+# Plot
+ggplot(conf_df, aes(x = Predicted, y = Actual, fill = Freq)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = paste0(Freq, "\n(", Percent, "%)")), size = 5) +
+  scale_fill_gradient(low = "lightblue", high = "steelblue") +
+  labs(
+    title = plot_title,
+    x = "Predicted Label",
+    y = "Actual Label"
+  ) +
+  theme_minimal(base_size = 14)
+```
+
