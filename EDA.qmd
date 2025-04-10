@@ -441,7 +441,7 @@ varImpPlot(rf_model, n.var = 15, main = "Variable Importance (RF Model)")
 # keep top brands, label the rest as "Other"
 
 model_data_revised <- model_data %>%
-  select(Returned, product_brand, sales_district, profit_margin, product_weight, product_cost, store_age, product_retail_price, product_weight, yearly_income)
+  select(Returned, product_brand, sales_district, profit_margin, product_weight, product_cost, store_age, product_retail_price, yearly_income)
 
 
 # First split: 70% training, 30% remaining
